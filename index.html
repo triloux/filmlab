@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Film Lab</title>
+
+<style>
+    body {
+        margin: 0;
+        background: #0b0b0e;
+        font-family: system-ui, sans-serif;
+        color: #e8ecf5;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding: 40px;
+    }
+
+    .container {
+        display: flex;
+        gap: 32px;
+        max-width: 800px;
+        width: 100%;
+    }
+
+    .left {
+        flex: 1;
+    }
+
+    .right {
+        width: 280px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        background: #111218;
+        padding: 20px;
+        border-radius: 12px;
+        border: 1px solid #23242c;
+    }
+
+    h1 {
+        font-size: 22px;
+        font-weight: 500;
+        letter-spacing: .05em;
+        margin: 0 0 4px;
+    }
+
+    label, select, button, input[type=range] {
+        font-size: 14px;
+    }
+
+    .btn {
+        background: #16161a;
+        padding: 10px 16px;
+        border-radius: 6px;
+        border: 1px solid #3d3f4c;
+        cursor: pointer;
+        color: #fff;
+        text-align: center;
+    }
+
+    input[type=file] { display: none; }
+
+    .slider-block {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        color: #ccc;
+    }
+
+    canvas {
+        width: 100%;
+        background: #111;
+        border-radius: 12px;
+        border: 1px solid #333;
+    }
+
+    select {
+        background: #16161a;
+        color: white;
+        border-radius: 6px;
+        padding: 10px;
+        border: 1px solid #3d3f4c;
+        width: 100%;
+    }
+</style>
+</head>
+
+<body>
+<div class="container">
+
+    <div class="left">
+        <canvas id="canvas" width="700" height="700"></canvas>
+    </div>
+
+    <div class="right">
+
+        <h1>Film Lab</h1>
+
+        <label class="btn">
+            📤 Choose Image
+            <input id="file" type="file" accept="image/*">
+        </label>
+
+        <select id="preset">
+            <option value="portra400">Portra 400</option>
+            <option value="portra800">Portra 800</option>
+            <option value="fuji400h">Fuji 400H</option>
+            <option value="cinestill">Cinestill 800T</option>
+            <option value="expired">Expired Film</option>
+            <option value="hp5">Ilford HP5 (B&W)</option>
+        </select>
+
+        <div class="slider-block">
+            <span>Grain</span>
+            <input id="grain" type="range" min="0" max="100" value="20">
+        </div>
+
+        <div class="slider-block">
+            <span>Halation</span>
+            <input id="halation" type="range" min="0" max="100" value="30">
+        </div>
+
+        <button id="download" class="btn" disabled>Download</button>
+    </div>
+
+</div>
+
+<script>
+const fileEl = document.getElementById("file");
+const presetEl = document.getElementById("preset");
+const grainEl = document.getElementById("grain");
+const halationEl = document.getElementById("halation");
+const downloadEl = document.getElementById("download");
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+let imgBitmap = null;
+
+// Film curves
+function applyFilmCurve(r, g, b, preset) {
+    if (preset === "portra400") {
+        r = r * 1.02 + 2;
+        g = g * 1.00 + 1;
+        b = b * 0.98;
+    }
+    if (preset === "portra800") {
+        r = r * 1.04 + 4;
+        g = g * 1.02 + 2;
+        b = b * 0.95 - 2;
+    }
+    if (preset === "fuji400h") {
+        r *= 0.95;
+        g *= 1.04;
+        b *= 1.03;
+    }
+    if (preset === "expired") {
+        r *= 0.9;
+        g *= 1.05;
+        b *= 1.15;
+        r = Math.min(r + 10, 255);
+    }
+    if (preset === "hp5") {
+        let lum = 0.3*r + 0.59*g + 0.11*b;
+        r = g = b = lum;
+    }
+    return [r, g, b];
+}
+
+// Grain
+function addGrain(data, w, h, amount) {
+    for (let i = 0; i < w*h*4; i += 4) {
+        const g = (Math.random() - 0.5) * amount;
+        data[i] += g;
+        data[i+1] += g;
+        data[i+2] += g;
+    }
+}
+
+// Halation (soft red glow)
+function addHalation(data, w, h, intensity) {
+    const copy = new Uint8ClampedArray(data);
+    const rad = 10;
+
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            let idx = (y * w + x) * 4;
+
+            let r = 0;
+            let count = 0;
+
+            for (let dy = -rad; dy <= rad; dy++) {
+                let ny = y + dy;
+                if (ny < 0 || ny >= h) continue;
+                for (let dx = -rad; dx <= rad; dx++) {
+                    let nx = x + dx;
+                    if (nx < 0 || nx >= w) continue;
+                    let nidx = (ny * w + nx) * 4;
+                    r += copy[nidx];
+                    count++;
+                }
+            }
+
+            r = r / count;
+            data[idx] += (r - data[idx]) * (intensity/100);
+        }
+    }
+}
+
+function render() {
+    if (!imgBitmap) return;
+
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    const s = Math.min(canvas.width / imgBitmap.width, canvas.height / imgBitmap.height);
+    const dw = imgBitmap.width * s;
+    const dh = imgBitmap.height * s;
+    const dx = (canvas.width - dw)/2;
+    const dy = (canvas.height - dh)/2;
+
+    ctx.drawImage(imgBitmap, dx, dy, dw, dh);
+
+    let imgData = ctx.getImageData(dx, dy, dw, dh);
+    let d = imgData.data;
+
+    const preset = presetEl.value;
+
+    for (let i = 0; i < d.length; i += 4) {
+        let r = d[i], g = d[i+1], b = d[i+2];
+
+        [r, g, b] = applyFilmCurve(r, g, b, preset);
+
+        d[i] = r;
+        d[i+1] = g;
+        d[i+2] = b;
+    }
+
+    if (preset === "cinestill") {
+        addHalation(d, dw, dh, halationEl.value);
+    }
+
+    addGrain(d, dw, dh, grainEl.value * 0.8);
+
+    ctx.putImageData(imgData, dx, dy);
+}
+
+fileEl.addEventListener("change", async e => {
+    const file = e.target.files[0];
+    imgBitmap = await createImageBitmap(file);
+    render();
+    downloadEl.disabled = false;
+});
+
+presetEl.oninput = render;
+grainEl.oninput = render;
+halationEl.oninput = render;
+
+downloadEl.addEventListener("click", () => {
+    const a = document.createElement("a");
+    a.download = "film_lab.png";
+    a.href = canvas.toDataURL("image/png");
+    a.click();
+});
+</script>
+</body>
+</html>
