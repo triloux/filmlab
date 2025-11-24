@@ -1,4 +1,7 @@
-# 📸 Film Lab — Browser-Based Film Emulation  
+# 📸 Film Lab — Browser-Based Film Emulation
+
+link: https://triloux.github.io/filmlab/
+
 A lightweight, single-page tool that applies **Kodak / Fuji / Cinestill / Expired Film** looks directly in the browser using HTML Canvas.  
 No WebGL. No libraries. No backend. Fully client-side.
 
